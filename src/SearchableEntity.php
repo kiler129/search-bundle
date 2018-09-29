@@ -27,26 +27,33 @@ class SearchableEntity implements SearchableEntityInterface
         $this->setId();
     }
 
+    /**
+     * @inheritdoc
+     */
     public function getIndexName()
     {
         return $this->indexName;
     }
 
+    /**
+     * @inheritdoc
+     */
     public function getSearchableArray()
     {
-        $context = [
-            'fieldsMapping' => $this->entityMetadata->fieldMappings,
-        ];
+        return $this->serializeValue(
+            $this->entity,
+            [
+                'fieldsMapping' => $this->entityMetadata->fieldMappings,
+            ]
+        );
+    }
 
-        if ($this->useSerializerGroups) {
-            $context['groups'] = [Searchable::NORMALIZATION_GROUP];
-        }
-
-        if ($this->normalizer instanceof NormalizerInterface) {
-            return $this->normalizer->normalize($this->entity, Searchable::NORMALIZATION_FORMAT, $context);
-        } elseif ($this->normalizer instanceof ArrayTransformerInterface) {
-            return $this->normalizer->toArray($this->entity);
-        }
+    /**
+     * @inheritdoc
+     */
+    public function getId()
+    {
+        return $this->id;
     }
 
     private function setId()
@@ -58,20 +65,47 @@ class SearchableEntity implements SearchableEntityInterface
         }
 
         if (1 == count($ids)) {
-            $this->id = reset($ids);
-        } else {
-            $objectID = '';
-            foreach ($ids as $key => $value) {
-                $objectID .= $key . '-' . $value . '__';
-            }
+            $id = \reset($ids);
+            $this->id = \is_scalar($id) ? (string)$id : $this->serializeValue($id);
 
-            $this->id = rtrim($objectID, '_');
+            return;
         }
 
+        $objectID = '';
+        foreach ($ids as $key => $value) {
+            $objectID .= $key . '-' . $value . '__';
+        }
+
+        $this->id = rtrim($objectID, '_');
     }
 
-    public function getId()
+    /**
+     * @param object $value
+     *
+     * @return array|string
+     */
+    private function serializeValue($value, $context = [])
     {
-        return $this->id;
+        if ($this->useSerializerGroups) {
+            $context['groups'] = [Searchable::NORMALIZATION_GROUP];
+        }
+
+        if ($this->normalizer instanceof NormalizerInterface) {
+            return $this->normalizer->normalize($value, Searchable::NORMALIZATION_FORMAT, $context);
+        }
+
+        if ($this->normalizer instanceof ArrayTransformerInterface) {
+            return $this->normalizer->toArray($value);
+        }
+
+        throw new \LogicException(
+            \sprintf(
+                'Invalid normalizer %s passed to %s, expected %s or %s',
+                get_class($this->normalizer),
+                __METHOD__,
+                NormalizerInterface::class,
+                ArrayTransformerInterface::class
+            )
+        );
     }
 }

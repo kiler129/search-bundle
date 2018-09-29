@@ -6,8 +6,11 @@ use Algolia\SearchBundle\Entity\Comment;
 use Algolia\SearchBundle\Entity\Post;
 use Algolia\SearchBundle\Entity\Tag;
 use Algolia\SearchBundle\Normalizer\CommentNormalizer;
+use JMS\Serializer\ArrayTransformerInterface;
 use Symfony\Component\Serializer\Normalizer\DateTimeNormalizer;
+use Symfony\Component\Serializer\Normalizer\NormalizerInterface;
 use Symfony\Component\Serializer\Serializer;
+use Symfony\Component\Serializer\SerializerInterface;
 
 class SerializationTest extends BaseTest
 {
@@ -206,5 +209,89 @@ class SerializationTest extends BaseTest
         ];
 
         $this->assertEquals($expected, $searchablePost->getSearchableArray());
+    }
+
+    public function testScalarIdIsCastedToString()
+    {
+        $post = new Post(['id' => 12]);
+        $postMeta = $this->get('doctrine')->getManager()->getClassMetadata(Post::class);
+
+        $searchablePost = new SearchableEntity(
+            'posts',
+            $post,
+            $postMeta,
+            $this->getMockForAbstractClass(SerializerInterface::class)
+        );
+
+        $this->assertSame('12', $searchablePost->getId());
+    }
+
+    public function testNonScalarIdIsNormalizedWithSymfonyNormalizer()
+    {
+        $id = new \stdClass();
+
+        $post = new Post(['id' => $id]);
+        $postMeta = $this->get('doctrine')->getManager()->getClassMetadata(Post::class);
+
+        $normalizer = $this->createMock(NormalizerInterface::class);
+        $normalizer
+            ->expects($this->once())
+            ->method('normalize')
+            ->with(
+                $id, Searchable::NORMALIZATION_FORMAT, ['groups' => [Searchable::NORMALIZATION_GROUP]]
+            )
+            ->willReturn('foo')
+        ;
+
+        $searchablePost = new SearchableEntity(
+            'posts',
+            $post,
+            $postMeta,
+            $normalizer,
+            ['useSerializerGroup' => true]
+        );
+
+        $this->assertSame('foo', $searchablePost->getId());
+    }
+
+
+    public function testNonScalarIdIsNormalizedWithJMSArrayTransformer()
+    {
+        $id = new \stdClass();
+
+        $post = new Post(['id' => $id]);
+        $postMeta = $this->get('doctrine')->getManager()->getClassMetadata(Post::class);
+
+        $normalizer = $this->createMock(ArrayTransformerInterface::class);
+        $normalizer
+            ->expects($this->once())
+            ->method('toArray')
+            ->with($id)
+            ->willReturn('bar')
+        ;
+
+        $searchablePost = new SearchableEntity(
+            'posts',
+            $post,
+            $postMeta,
+            $normalizer
+        );
+
+        $this->assertSame('bar', $searchablePost->getId());
+    }
+
+    public function testPassingUnsupportedNormalizerThrowsException()
+    {
+        $searchablePost = new SearchableEntity(
+            'posts',
+            new Post(['id' => '123']),
+            $this->get('doctrine')->getManager()->getClassMetadata(Post::class),
+            new \stdClass()
+        );
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('Invalid normalizer');
+
+        $searchablePost->getSearchableArray();
     }
 }
